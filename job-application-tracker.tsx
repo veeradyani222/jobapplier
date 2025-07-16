@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Mail, Plus, UserPlus, RefreshCw, Check, X, MessageSquare, MoreHorizontal } from "lucide-react"
+import { Mail, Plus, UserPlus, RefreshCw, Check, X, MessageSquare, MoreHorizontal, Clock } from "lucide-react" // Added Clock icon
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
@@ -27,7 +27,7 @@ type JobApplication = {
   founderLinkedIn: string
   companyLinkedIn: string
   status: "Applied" | "Interviewing" | "Offer" | "Rejected" | "Follow-up Pending" | "Awaiting Response"
-  comments: string // Added comments field
+  comments: string
 }
 
 const statusColors = {
@@ -50,6 +50,18 @@ export default function JobApplicationTracker() {
   // For now using a static userId - replace with actual auth when available
   const userId = "current-user-id"
   const API_BASE = "https://doord-backend.onrender.com/applications"
+
+  // Helper to get today's date in YYYY-MM-DD format
+  const getTodayDate = () => new Date().toISOString().split("T")[0]
+
+  // Helper to check if a date is more than a week old
+  const isMoreThanAWeekOld = (dateString: string) => {
+    const appliedDate = new Date(dateString)
+    const today = new Date()
+    const diffTime = Math.abs(today.getTime() - appliedDate.getTime())
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays >= 7
+  }
 
   // Fetch all applications on component mount
   useEffect(() => {
@@ -84,8 +96,8 @@ export default function JobApplicationTracker() {
         const mappedApplications = (data.applications || []).map((app: any) => ({
           ...app,
           id: app._id || app.id,
-          dateApplied: app.dateApplied ? new Date(app.dateApplied).toISOString().split("T")[0] : "",
-          comments: app.comments || "", // Ensure comments field exists
+          dateApplied: app.dateApplied ? new Date(app.dateApplied).toISOString().split("T")[0] : getTodayDate(), // Default to today
+          comments: app.comments || "",
         }))
 
         setApplications(mappedApplications)
@@ -117,7 +129,8 @@ export default function JobApplicationTracker() {
         founderEmail: "founder@company.com",
         founderLinkedIn: "",
         companyLinkedIn: "",
-        comments: "", // Initialize comments for new application
+        comments: "",
+        dateApplied: getTodayDate(), // Default to today's date
       }
 
       const response = await fetch(API_BASE, {
@@ -137,15 +150,15 @@ export default function JobApplicationTracker() {
 
       if (data.success) {
         setApplications((prev) => [
-          ...prev,
           {
             ...data.application,
             id: data.application._id || data.application.id,
             dateApplied: data.application.dateApplied
               ? new Date(data.application.dateApplied).toISOString().split("T")[0]
-              : new Date().toISOString().split("T")[0],
+              : getTodayDate(),
             comments: data.application.comments || "",
           },
+          ...prev, // Add new application to the top
         ])
         toast({
           title: "Application added",
@@ -216,6 +229,8 @@ export default function JobApplicationTracker() {
         description: `Failed to update ${field}: ${error.message}`,
         variant: "destructive",
       })
+    } finally {
+      setLoading(`delete-${id}`, false)
     }
   }
 
@@ -288,11 +303,11 @@ export default function JobApplicationTracker() {
   }
 
   // Enhanced API functions
-  const sendFounderEmail = async (application: JobApplication, context?: string) => {
-    const loadingKey = `founder-email-${application.id}-${context || "initial"}`
+  const sendFounderEmail = async (application: JobApplication, target?: string) => {
+    const loadingKey = `founder-email-${application.id}-${target || "initial"}`
     setLoading(loadingKey, true)
     try {
-      console.log(`Sending founder email (${context || "initial"}) for application:`, application.id)
+      console.log(`Sending founder email (${target || "initial"}) for application:`, application.id)
 
       const response = await fetch(`${API_BASE}/${application.id}`, {
         method: "PATCH",
@@ -301,7 +316,7 @@ export default function JobApplicationTracker() {
         },
         body: JSON.stringify({
           action: "send-email",
-          target: context, // Use 'target' for context in backend
+          target: target, // Use 'target' for context in backend
         }),
       })
 
@@ -336,8 +351,8 @@ export default function JobApplicationTracker() {
     }
   }
 
-  const sendCompanyEmail = async (application: JobApplication, context?: string) => {
-    const loadingKey = `company-email-${application.id}-${context || "initial"}`
+  const sendCompanyEmail = async (application: JobApplication, target?: string) => {
+    const loadingKey = `company-email-${application.id}-${target || "initial"}`
     setLoading(loadingKey, true)
     try {
       // For now, we'll use the same endpoint but could be extended for company-specific emails
@@ -356,24 +371,13 @@ export default function JobApplicationTracker() {
     }
   }
 
-  const handleFounderLinkedIn = async (application: JobApplication, context?: string) => {
-    const loadingKey = `founder-linkedin-${application.id}-${context || "initial"}`
+  const handleLinkedInAction = async (application: JobApplication, type: "founder" | "company", target?: string) => {
+    const field = type === "founder" ? "founderLinkedIn" : "companyLinkedIn"
+    const loadingKey = `${type}-linkedin-${application.id}-${target || "initial"}`
     setLoading(loadingKey, true)
-    try {
-      // Open LinkedIn URL immediately on user click
-      if (application.founderLinkedIn) {
-        window.open(application.founderLinkedIn, "_blank", "noopener,noreferrer")
-      } else {
-        toast({
-          title: "No LinkedIn URL",
-          description: "Founder LinkedIn URL is not provided.",
-          variant: "destructive",
-        })
-        setLoading(loadingKey, false)
-        return // Exit if no URL
-      }
 
-      console.log(`Generating founder LinkedIn message (${context || "initial"}) for application:`, application.id)
+    try {
+      console.log(`Generating ${type} LinkedIn message (${target || "initial"}) for application:`, application.id)
 
       const response = await fetch(`${API_BASE}/${application.id}`, {
         method: "PATCH",
@@ -381,102 +385,56 @@ export default function JobApplicationTracker() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "founder-linkedin",
-          target: context, // Use 'target' for context in backend
+          action: `${type}-linkedin`,
+          target: target, // Use 'target' for context in backend
         }),
       })
 
-      console.log("Founder LinkedIn response status:", response.status)
+      console.log(`${type} LinkedIn response status:`, response.status)
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error("Founder LinkedIn error:", errorText)
-        throw new Error(`Failed to generate message: ${response.status}`)
+        console.error(`${type} LinkedIn error:`, errorText)
+        throw new Error(`Failed to generate message: ${response.status} - ${errorText}`)
       }
 
       const data = await response.json()
-      console.log("Founder LinkedIn response:", data)
+      console.log(`${type} LinkedIn response:", data`)
 
       if (data.success && data.content) {
-        // Copy to clipboard after successful response
-        await navigator.clipboard.writeText(data.content)
+        try {
+          await navigator.clipboard.writeText(data.content)
+          toast({
+            title: "Message copied",
+            description: data.message || `${type} LinkedIn message copied to clipboard`,
+          })
+        } catch (clipboardError) {
+          console.error("Clipboard copy failed:", clipboardError)
+          toast({
+            title: "Clipboard Error",
+            description: "Failed to copy message to clipboard. Please copy manually.",
+            variant: "destructive",
+          })
+        }
 
-        toast({
-          title: "Message copied & LinkedIn opened",
-          description: data.message || "Founder LinkedIn message copied to clipboard",
-        })
+        // Open LinkedIn URL AFTER clipboard copy attempt
+        if (application[field]) {
+          window.open(application[field], "_blank", "noopener,noreferrer")
+        } else {
+          toast({
+            title: "No LinkedIn URL",
+            description: `${type} LinkedIn URL is not provided.`,
+            variant: "destructive",
+          })
+        }
       } else {
-        throw new Error(data.message || "Failed to generate message")
+        throw new Error(data.message || `Failed to generate ${type} message`)
       }
     } catch (error) {
-      console.error("Founder LinkedIn error:", error)
+      console.error(`${type} LinkedIn error:`, error)
       toast({
         title: "Error",
-        description: error.message || "Failed to generate founder LinkedIn message",
-        variant: "destructive",
-      })
-    } finally {
-      setLoading(loadingKey, false)
-    }
-  }
-
-  const handleCompanyLinkedIn = async (application: JobApplication, context?: string) => {
-    const loadingKey = `company-linkedin-${application.id}-${context || "initial"}`
-    setLoading(loadingKey, true)
-    try {
-      // Open LinkedIn URL immediately on user click
-      if (application.companyLinkedIn) {
-        window.open(application.companyLinkedIn, "_blank", "noopener,noreferrer")
-      } else {
-        toast({
-          title: "No LinkedIn URL",
-          description: "Company LinkedIn URL is not provided.",
-          variant: "destructive",
-        })
-        setLoading(loadingKey, false)
-        return // Exit if no URL
-      }
-
-      console.log(`Generating company LinkedIn message (${context || "initial"}) for application:`, application.id)
-
-      const response = await fetch(`${API_BASE}/${application.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "company-linkedin",
-          target: context, // Use 'target' for context in backend
-        }),
-      })
-
-      console.log("Company LinkedIn response status:", response.status)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error("Company LinkedIn error:", errorText)
-        throw new Error(`Failed to generate message: ${response.status}`)
-      }
-
-      const data = await response.json()
-      console.log("Company LinkedIn response:", data)
-
-      if (data.success && data.content) {
-        // Copy to clipboard after successful response
-        await navigator.clipboard.writeText(data.content)
-
-        toast({
-          title: "Message copied & LinkedIn opened",
-          description: data.message || "Company LinkedIn message copied to clipboard",
-        })
-      } else {
-        throw new Error(data.message || "Failed to generate message")
-      }
-    } catch (error) {
-      console.error("Company LinkedIn error:", error)
-      toast({
-        title: "Error",
-        description: error.message || "Failed to generate company LinkedIn message",
+        description: error.message || `Failed to generate ${type} LinkedIn message`,
         variant: "destructive",
       })
     } finally {
@@ -521,11 +479,21 @@ export default function JobApplicationTracker() {
         }
 
         if (data.content) {
-          await navigator.clipboard.writeText(data.content)
-          toast({
-            title: `${target} Follow-up copied`,
-            description: data.message || `${target} follow-up message copied to clipboard`,
-          })
+          try {
+            await navigator.clipboard.writeText(data.content)
+            toast({
+              title: `${target} Follow-up copied`,
+              description: data.message || `${target} follow-up message copied to clipboard`,
+            })
+          } catch (clipboardError) {
+            console.error("Clipboard copy failed:", clipboardError)
+            toast({
+              title: "Clipboard Error",
+              description: "Failed to copy message to clipboard. Please copy manually.",
+              variant: "destructive",
+            })
+          }
+
           // If it's a LinkedIn action, open the URL after copying
           if (target.includes("linkedin")) {
             const linkedInUrl =
@@ -606,7 +574,7 @@ export default function JobApplicationTracker() {
           <p className="text-gray-600 max-w-md">{error}</p>
           <div className="space-y-2">
             <p className="text-sm text-gray-500">Check your browser console for detailed error logs</p>
-            <Button onClick={fetchApplications} className="flex items-center gap-2">
+            <Button onClick={fetchApplications} variant="outline" size="sm">
               <RefreshCw className="h-4 w-4" />
               Retry Connection
             </Button>
@@ -752,7 +720,7 @@ export default function JobApplicationTracker() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-col items-start gap-1">
                           <Input
                             type="date"
                             value={app.dateApplied}
@@ -760,6 +728,15 @@ export default function JobApplicationTracker() {
                             onBlur={(e) => handleBlur(app.id!, "dateApplied", e.target.value)}
                             className="border-0 p-1 h-8"
                           />
+                          {isMoreThanAWeekOld(app.dateApplied) && (
+                            <Badge
+                              variant="outline"
+                              className="bg-red-50 text-red-600 text-xs px-2 py-1 flex items-center gap-1"
+                            >
+                              <Clock className="h-3 w-3" />
+                              {"1+ Week Old!"}
+                            </Badge>
+                          )}
                           {getSaveIcon(app.id!, "dateApplied")}
                         </div>
                       </TableCell>
@@ -810,7 +787,7 @@ export default function JobApplicationTracker() {
                             <Button
                               size="sm"
                               variant="secondary"
-                              onClick={() => handleFounderLinkedIn(app)}
+                              onClick={() => handleLinkedInAction(app, "founder")}
                               disabled={loadingStates[`founder-linkedin-${app.id}-initial`] || !app.founderLinkedIn}
                               className="h-7 px-2 text-xs w-full"
                               title="Generate message & open LinkedIn"
@@ -837,7 +814,7 @@ export default function JobApplicationTracker() {
                             <Button
                               size="sm"
                               variant="secondary"
-                              onClick={() => handleCompanyLinkedIn(app)}
+                              onClick={() => handleLinkedInAction(app, "company")}
                               disabled={loadingStates[`company-linkedin-${app.id}-initial`] || !app.companyLinkedIn}
                               className="h-7 px-2 text-xs w-full"
                               title="Generate message & open LinkedIn"
