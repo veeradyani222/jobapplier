@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { LinkedInMessageDialog } from "@/components/linkedin-message-dialog" // Import the new dialog
 
 type JobApplication = {
   _id?: string
@@ -46,6 +47,12 @@ export default function JobApplicationTracker() {
   const [savingStates, setSavingStates] = useState<Record<string, "saving" | "saved" | "error">>({})
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // State for the LinkedIn message dialog
+  const [showLinkedInDialog, setShowLinkedInDialog] = useState(false)
+  const [linkedInDialogContent, setLinkedInDialogContent] = useState("")
+  const [linkedInDialogUrl, setLinkedInDialogUrl] = useState("")
+  const [linkedInDialogType, setLinkedInDialogType] = useState<"founder" | "company">("founder")
 
   // For now using a static userId - replace with actual auth when available
   const userId = "current-user-id"
@@ -376,7 +383,9 @@ export default function JobApplicationTracker() {
     const loadingKey = `${type}-linkedin-${application.id}-${target || "initial"}`
     setLoading(loadingKey, true)
 
-    if (!application[field]) {
+    const linkedInUrl = application[field]
+
+    if (!linkedInUrl) {
       toast({
         title: "No LinkedIn URL",
         description: `${type} LinkedIn URL is not provided.`,
@@ -409,20 +418,11 @@ export default function JobApplicationTracker() {
       const generatedContent = data.content || ""
 
       if (data.success && generatedContent) {
-        try {
-          await navigator.clipboard.writeText(generatedContent)
-          toast({
-            title: "Message copied",
-            description: data.message || `${type} LinkedIn message copied to clipboard`,
-          })
-        } catch (clipboardError) {
-          console.error("Clipboard copy failed:", clipboardError)
-          toast({
-            title: "Clipboard Error",
-            description: "Failed to copy message to clipboard. Please copy manually.",
-            variant: "destructive",
-          })
-        }
+        // Open the dialog with the message and URL
+        setLinkedInDialogContent(generatedContent)
+        setLinkedInDialogUrl(linkedInUrl)
+        setLinkedInDialogType(type)
+        setShowLinkedInDialog(true)
       } else {
         throw new Error(data.message || `Failed to generate ${type} message`)
       }
@@ -435,10 +435,6 @@ export default function JobApplicationTracker() {
       })
     } finally {
       setLoading(loadingKey, false)
-      // Open LinkedIn URL AFTER clipboard copy attempt (successful or not)
-      if (application[field]) {
-        window.open(application[field], "_blank", "noopener,noreferrer")
-      }
     }
   }
 
@@ -479,39 +475,44 @@ export default function JobApplicationTracker() {
         }
 
         if (data.content) {
-          try {
-            await navigator.clipboard.writeText(data.content)
-            toast({
-              title: `${target} Follow-up copied`,
-              description: data.message || `${target} follow-up message copied to clipboard`,
-            })
-          } catch (clipboardError) {
-            console.error("Clipboard copy failed:", clipboardError)
-            toast({
-              title: "Clipboard Error",
-              description: "Failed to copy message to clipboard. Please copy manually.",
-              variant: "destructive",
-            })
+          // If it's a LinkedIn action, open the dialog
+          if (target.includes("linkedin")) {
+            const type = target.includes("founder") ? "founder" : "company"
+            const linkedInUrl = type === "founder" ? application.founderLinkedIn : application.companyLinkedIn
+            if (!linkedInUrl) {
+              toast({
+                title: "No LinkedIn URL",
+                description: `No LinkedIn URL provided for the ${type}.`,
+                variant: "destructive",
+              })
+              return // Exit if no URL
+            }
+            setLinkedInDialogContent(data.content)
+            setLinkedInDialogUrl(linkedInUrl)
+            setLinkedInDialogType(type)
+            setShowLinkedInDialog(true)
+          } else {
+            // For non-LinkedIn actions, copy directly
+            try {
+              await navigator.clipboard.writeText(data.content)
+              toast({
+                title: `${target} Follow-up copied`,
+                description: data.message || `${target} follow-up message copied to clipboard`,
+              })
+            } catch (clipboardError) {
+              console.error("Clipboard copy failed:", clipboardError)
+              toast({
+                title: "Clipboard Error",
+                description: "Failed to copy message to clipboard. Please copy manually.",
+                variant: "destructive",
+              })
+            }
           }
         } else {
           toast({
             title: `${target} Follow-up successful`,
             description: data.message || `${target} follow-up action completed for ${application.companyName}`,
           })
-        }
-
-        // Open LinkedIn URL if it's a LinkedIn action, after clipboard attempt
-        if (target.includes("linkedin")) {
-          const linkedInUrl = target === "founder-linkedin" ? application.founderLinkedIn : application.companyLinkedIn
-          if (linkedInUrl) {
-            window.open(linkedInUrl, "_blank", "noopener,noreferrer")
-          } else {
-            toast({
-              title: "No LinkedIn URL",
-              description: `No LinkedIn URL provided for ${target.split("-")[0]}.`,
-              variant: "destructive",
-            })
-          }
         }
       } else {
         throw new Error(data.error || `Failed to perform ${target} follow-up`)
@@ -586,7 +587,7 @@ export default function JobApplicationTracker() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center py-4">
-        <h1 className="text-3xl font-bold text-green-600">Hello Veeeerrrr! You are cracking this job hunt! 🚀</h1>
+        <h1 className="text-3xl font-bold text-green-600">Hello Veeeeerrrr! You are cracking this job hunt! 🚀</h1>
         <p className="text-lg text-gray-600 mt-2">Time to get that bag! 💰</p>
         <p className="text-sm text-gray-500 mt-1">
           💡 Tip: Press Enter to save immediately, or wait 1 second for auto-save
@@ -938,6 +939,15 @@ export default function JobApplicationTracker() {
         </CardContent>
       </Card>
       <Toaster />
+
+      {/* LinkedIn Message Dialog */}
+      <LinkedInMessageDialog
+        isOpen={showLinkedInDialog}
+        onClose={() => setShowLinkedInDialog(false)}
+        message={linkedInDialogContent}
+        linkedInUrl={linkedInDialogUrl}
+        type={linkedInDialogType}
+      />
     </div>
   )
 }
