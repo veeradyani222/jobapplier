@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Mail, Plus, UserPlus, RefreshCw, Check, X, MessageSquare, MoreHorizontal, Clock } from "lucide-react" // Added Clock icon
+import { Mail, Plus, UserPlus, RefreshCw, Check, X, MessageSquare, MoreHorizontal, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
@@ -96,7 +96,7 @@ export default function JobApplicationTracker() {
         const mappedApplications = (data.applications || []).map((app: any) => ({
           ...app,
           id: app._id || app.id,
-          dateApplied: app.dateApplied ? new Date(app.dateApplied).toISOString().split("T")[0] : getTodayDate(), // Default to today
+          dateApplied: app.dateApplied ? new Date(app.dateApplied).toISOString().split("T")[0] : getTodayDate(),
           comments: app.comments || "",
         }))
 
@@ -130,7 +130,7 @@ export default function JobApplicationTracker() {
         founderLinkedIn: "",
         companyLinkedIn: "",
         comments: "",
-        dateApplied: getTodayDate(), // Default to today's date
+        dateApplied: getTodayDate(),
       }
 
       const response = await fetch(API_BASE, {
@@ -158,7 +158,7 @@ export default function JobApplicationTracker() {
               : getTodayDate(),
             comments: data.application.comments || "",
           },
-          ...prev, // Add new application to the top
+          ...prev,
         ])
         toast({
           title: "Application added",
@@ -316,7 +316,7 @@ export default function JobApplicationTracker() {
         },
         body: JSON.stringify({
           action: "send-email",
-          target: target, // Use 'target' for context in backend
+          target: target,
         }),
       })
 
@@ -376,6 +376,16 @@ export default function JobApplicationTracker() {
     const loadingKey = `${type}-linkedin-${application.id}-${target || "initial"}`
     setLoading(loadingKey, true)
 
+    if (!application[field]) {
+      toast({
+        title: "No LinkedIn URL",
+        description: `${type} LinkedIn URL is not provided.`,
+        variant: "destructive",
+      })
+      setLoading(loadingKey, false)
+      return
+    }
+
     try {
       console.log(`Generating ${type} LinkedIn message (${target || "initial"}) for application:`, application.id)
 
@@ -386,24 +396,21 @@ export default function JobApplicationTracker() {
         },
         body: JSON.stringify({
           action: `${type}-linkedin`,
-          target: target, // Use 'target' for context in backend
+          target: target,
         }),
       })
 
-      console.log(`${type} LinkedIn response status:`, response.status)
-
       if (!response.ok) {
         const errorText = await response.text()
-        console.error(`${type} LinkedIn error:`, errorText)
         throw new Error(`Failed to generate message: ${response.status} - ${errorText}`)
       }
 
       const data = await response.json()
-      console.log(`${type} LinkedIn response:", data`)
+      const generatedContent = data.content || ""
 
-      if (data.success && data.content) {
+      if (data.success && generatedContent) {
         try {
-          await navigator.clipboard.writeText(data.content)
+          await navigator.clipboard.writeText(generatedContent)
           toast({
             title: "Message copied",
             description: data.message || `${type} LinkedIn message copied to clipboard`,
@@ -413,17 +420,6 @@ export default function JobApplicationTracker() {
           toast({
             title: "Clipboard Error",
             description: "Failed to copy message to clipboard. Please copy manually.",
-            variant: "destructive",
-          })
-        }
-
-        // Open LinkedIn URL AFTER clipboard copy attempt
-        if (application[field]) {
-          window.open(application[field], "_blank", "noopener,noreferrer")
-        } else {
-          toast({
-            title: "No LinkedIn URL",
-            description: `${type} LinkedIn URL is not provided.`,
             variant: "destructive",
           })
         }
@@ -439,6 +435,10 @@ export default function JobApplicationTracker() {
       })
     } finally {
       setLoading(loadingKey, false)
+      // Open LinkedIn URL AFTER clipboard copy attempt (successful or not)
+      if (application[field]) {
+        window.open(application[field], "_blank", "noopener,noreferrer")
+      }
     }
   }
 
@@ -455,8 +455,8 @@ export default function JobApplicationTracker() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "follow-up", // Main action is 'follow-up'
-          target: target, // Specific target for the nested switch in backend
+          action: "follow-up",
+          target: target,
         }),
       })
 
@@ -493,26 +493,25 @@ export default function JobApplicationTracker() {
               variant: "destructive",
             })
           }
-
-          // If it's a LinkedIn action, open the URL after copying
-          if (target.includes("linkedin")) {
-            const linkedInUrl =
-              target === "founder-linkedin" ? application.founderLinkedIn : application.companyLinkedIn
-            if (linkedInUrl) {
-              window.open(linkedInUrl, "_blank", "noopener,noreferrer")
-            } else {
-              toast({
-                title: "No LinkedIn URL",
-                description: `No LinkedIn URL provided for ${target.split("-")[0]}.`,
-                variant: "destructive",
-              })
-            }
-          }
         } else {
           toast({
             title: `${target} Follow-up successful`,
             description: data.message || `${target} follow-up action completed for ${application.companyName}`,
           })
+        }
+
+        // Open LinkedIn URL if it's a LinkedIn action, after clipboard attempt
+        if (target.includes("linkedin")) {
+          const linkedInUrl = target === "founder-linkedin" ? application.founderLinkedIn : application.companyLinkedIn
+          if (linkedInUrl) {
+            window.open(linkedInUrl, "_blank", "noopener,noreferrer")
+          } else {
+            toast({
+              title: "No LinkedIn URL",
+              description: `No LinkedIn URL provided for ${target.split("-")[0]}.`,
+              variant: "destructive",
+            })
+          }
         }
       } else {
         throw new Error(data.error || `Failed to perform ${target} follow-up`)
@@ -587,7 +586,7 @@ export default function JobApplicationTracker() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center py-4">
-        <h1 className="text-3xl font-bold text-green-600">Hello Veeeeerrrr! You are cracking this job hunt! 🚀</h1>
+        <h1 className="text-3xl font-bold text-green-600">Hello Veeeerrrr! You are cracking this job hunt! 🚀</h1>
         <p className="text-lg text-gray-600 mt-2">Time to get that bag! 💰</p>
         <p className="text-sm text-gray-500 mt-1">
           💡 Tip: Press Enter to save immediately, or wait 1 second for auto-save
@@ -640,7 +639,7 @@ export default function JobApplicationTracker() {
                     <TableHead className="min-w-[200px]">Actions</TableHead>
                     <TableHead className="min-w-[100px]">Follow Up</TableHead>
                     <TableHead className="min-w-[140px]">Status</TableHead>
-                    <TableHead className="min-w-[200px]">Comments</TableHead> {/* New Comments Header */}
+                    <TableHead className="min-w-[200px]">Comments</TableHead>
                     <TableHead className="min-w-[80px]">Delete</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -840,7 +839,7 @@ export default function JobApplicationTracker() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-[200px]">
                             <DropdownMenuItem
-                              onClick={() => handleFollowUpAction(app, "generic-message")} // Generic follow-up message
+                              onClick={() => handleFollowUpAction(app, "generic-message")}
                               disabled={loadingStates[`followup-generic-message-${app.id}`]}
                             >
                               <UserPlus className="h-3 w-3 mr-2" />
