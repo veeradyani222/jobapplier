@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Mail, Plus, UserPlus, RefreshCw, Check, X, MessageSquare, MoreHorizontal, Clock } from "lucide-react"
+import { Mail, Plus, UserPlus, RefreshCw, Check, X, MessageSquare, MoreHorizontal, Clock, Users } from "lucide-react" // Added Users icon
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
@@ -13,7 +13,9 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { LinkedInMessageDialog } from "@/components/linkedin-message-dialog" // Import the new dialog
+import { CompanyLinkedInMessageDialog } from "@/components/company-linkedin-message-dialog" // Renamed import
+import { ManageFoundersDialog } from "@/components/manage-founders-dialog" // New import
+import { MultiFounderLinkedInDialog } from "@/components/multi-founder-linkedin-dialog" // New import
 
 type JobApplication = {
   _id?: string
@@ -22,10 +24,10 @@ type JobApplication = {
   companyName: string
   jobTitle: string
   jobDescription: string
-  founderName: string
-  founderEmail: string
+  founderName: string[] // Changed to array
+  founderEmail: string[] // Changed to array
   dateApplied: string
-  founderLinkedIn: string
+  founderLinkedIn: string[] // Changed to array
   companyLinkedIn: string
   status: "Applied" | "Interviewing" | "Offer" | "Rejected" | "Follow-up Pending" | "Awaiting Response"
   comments: string
@@ -48,11 +50,20 @@ export default function JobApplicationTracker() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // State for the LinkedIn message dialog
-  const [showLinkedInDialog, setShowLinkedInDialog] = useState(false)
-  const [linkedInDialogContent, setLinkedInDialogContent] = useState("")
-  const [linkedInDialogUrl, setLinkedInDialogUrl] = useState("")
-  const [linkedInDialogType, setLinkedInDialogType] = useState<"founder" | "company">("founder")
+  // State for the Company LinkedIn message dialog
+  const [showCompanyLinkedInDialog, setShowCompanyLinkedInDialog] = useState(false)
+  const [companyLinkedInDialogContent, setCompanyLinkedInDialogContent] = useState("")
+  const [companyLinkedInDialogUrl, setCompanyLinkedInDialogUrl] = useState("")
+
+  // State for the Multi-Founder LinkedIn message dialog
+  const [showMultiFounderLinkedInDialog, setShowMultiFounderLinkedInDialog] = useState(false)
+  const [multiFounderLinkedInDialogContent, setMultiFounderLinkedInDialogContent] = useState<
+    { name: string; message: string; linkedIn: string | null }[]
+  >([])
+
+  // State for Manage Founders dialog
+  const [showManageFoundersDialog, setShowManageFoundersDialog] = useState(false)
+  const [currentApplicationForFounders, setCurrentApplicationForFounders] = useState<JobApplication | null>(null)
 
   // For now using a static userId - replace with actual auth when available
   const userId = "current-user-id"
@@ -105,6 +116,14 @@ export default function JobApplicationTracker() {
           id: app._id || app.id,
           dateApplied: app.dateApplied ? new Date(app.dateApplied).toISOString().split("T")[0] : getTodayDate(),
           comments: app.comments || "",
+          // Ensure founder fields are arrays, even if backend sends single values or nulls
+          founderName: Array.isArray(app.founderName) ? app.founderName : app.founderName ? [app.founderName] : [],
+          founderEmail: Array.isArray(app.founderEmail) ? app.founderEmail : app.founderEmail ? [app.founderEmail] : [],
+          founderLinkedIn: Array.isArray(app.founderLinkedIn)
+            ? app.founderLinkedIn
+            : app.founderLinkedIn
+              ? [app.founderLinkedIn]
+              : [],
         }))
 
         setApplications(mappedApplications)
@@ -132,9 +151,9 @@ export default function JobApplicationTracker() {
         companyName: "New Company",
         jobTitle: "New Position",
         jobDescription: "Job description to be added",
-        founderName: "Founder Name",
-        founderEmail: "founder@company.com",
-        founderLinkedIn: "",
+        founderName: [], // Initialize as empty array
+        founderEmail: [], // Initialize as empty array
+        founderLinkedIn: [], // Initialize as empty array
         companyLinkedIn: "",
         comments: "",
         dateApplied: getTodayDate(),
@@ -164,6 +183,21 @@ export default function JobApplicationTracker() {
               ? new Date(data.application.dateApplied).toISOString().split("T")[0]
               : getTodayDate(),
             comments: data.application.comments || "",
+            founderName: Array.isArray(data.application.founderName)
+              ? data.application.founderName
+              : data.application.founderName
+                ? [data.application.founderName]
+                : [],
+            founderEmail: Array.isArray(data.application.founderEmail)
+              ? data.application.founderEmail
+              : data.application.founderEmail
+                ? [data.application.founderEmail]
+                : [],
+            founderLinkedIn: Array.isArray(data.application.founderLinkedIn)
+              ? data.application.founderLinkedIn
+              : data.application.founderLinkedIn
+                ? [data.application.founderLinkedIn]
+                : [],
           },
           ...prev,
         ])
@@ -201,7 +235,7 @@ export default function JobApplicationTracker() {
     }
   }
 
-  const performUpdate = async (id: string, field: keyof JobApplication, value: string) => {
+  const performUpdate = async (id: string, field: keyof JobApplication, value: any) => {
     const saveKey = `${id}-${field}`
     setSavingState(saveKey, "saving")
 
@@ -230,7 +264,7 @@ export default function JobApplicationTracker() {
       }
     } catch (error) {
       setSavingState(saveKey, "error")
-      fetchApplications()
+      fetchApplications() // Re-fetch to ensure data consistency
       toast({
         title: "Update Failed",
         description: `Failed to update ${field}: ${error.message}`,
@@ -241,7 +275,7 @@ export default function JobApplicationTracker() {
     }
   }
 
-  const updateApplication = useCallback((id: string, field: keyof JobApplication, value: string, immediate = false) => {
+  const updateApplication = useCallback((id: string, field: keyof JobApplication, value: any, immediate = false) => {
     setApplications((prev) => prev.map((app) => (app.id === id ? { ...app, [field]: value } : app)))
 
     const timeoutKey = `${id}-${field}`
@@ -340,8 +374,8 @@ export default function JobApplicationTracker() {
 
       if (data.success) {
         toast({
-          title: "Email sent successfully",
-          description: `Email sent to ${data.to || application.founderEmail}`,
+          title: "Emails sent successfully",
+          description: data.message || `Emails sent to ${data.details.length} founders.`,
         })
       } else {
         throw new Error(data.message || "Failed to send email")
@@ -362,15 +396,46 @@ export default function JobApplicationTracker() {
     const loadingKey = `company-email-${application.id}-${target || "initial"}`
     setLoading(loadingKey, true)
     try {
-      // For now, we'll use the same endpoint but could be extended for company-specific emails
-      toast({
-        title: "Feature Coming Soon",
-        description: "Company email feature will be available soon!",
+      const response = await fetch(`${API_BASE}/${application.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "company-email",
+          target: target,
+        }),
       })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Server error: ${response.status} - ${errorText}`)
+      }
+
+      const data = await response.json()
+
+      if (data.success && data.content) {
+        try {
+          await navigator.clipboard.writeText(data.content)
+          toast({
+            title: "Company Email Copied",
+            description: data.message || "Company email content copied to clipboard.",
+          })
+        } catch (clipboardError) {
+          console.error("Clipboard copy failed:", clipboardError)
+          toast({
+            title: "Clipboard Error",
+            description: "Failed to copy message to clipboard. Please copy manually.",
+            variant: "destructive",
+          })
+        }
+      } else {
+        throw new Error(data.message || "Failed to generate company email")
+      }
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to send company email",
+        description: error.message || "Failed to generate company email",
         variant: "destructive",
       })
     } finally {
@@ -379,20 +444,29 @@ export default function JobApplicationTracker() {
   }
 
   const handleLinkedInAction = async (application: JobApplication, type: "founder" | "company", target?: string) => {
-    const field = type === "founder" ? "founderLinkedIn" : "companyLinkedIn"
     const loadingKey = `${type}-linkedin-${application.id}-${target || "initial"}`
     setLoading(loadingKey, true)
 
-    const linkedInUrl = application[field]
-
-    if (!linkedInUrl) {
-      toast({
-        title: "No LinkedIn URL",
-        description: `${type} LinkedIn URL is not provided.`,
-        variant: "destructive",
-      })
-      setLoading(loadingKey, false)
-      return
+    if (type === "founder") {
+      if (application.founderLinkedIn.length === 0) {
+        toast({
+          title: "No Founder LinkedIn URLs",
+          description: "Please add founder LinkedIn URLs first.",
+          variant: "destructive",
+        })
+        setLoading(loadingKey, false)
+        return
+      }
+    } else {
+      if (!application.companyLinkedIn) {
+        toast({
+          title: "No Company LinkedIn URL",
+          description: "Company LinkedIn URL is not provided.",
+          variant: "destructive",
+        })
+        setLoading(loadingKey, false)
+        return
+      }
     }
 
     try {
@@ -415,14 +489,26 @@ export default function JobApplicationTracker() {
       }
 
       const data = await response.json()
-      const generatedContent = data.content || ""
 
-      if (data.success && generatedContent) {
-        // Open the dialog with the message and URL
-        setLinkedInDialogContent(generatedContent)
-        setLinkedInDialogUrl(linkedInUrl)
-        setLinkedInDialogType(type)
-        setShowLinkedInDialog(true)
+      if (data.success) {
+        if (type === "founder") {
+          // Backend returns 'details' array for multiple founders
+          if (data.details && Array.isArray(data.details)) {
+            setMultiFounderLinkedInDialogContent(data.details)
+            setShowMultiFounderLinkedInDialog(true)
+          } else {
+            throw new Error("Invalid response for founder LinkedIn messages.")
+          }
+        } else {
+          // Backend returns 'content' for single company message
+          if (data.content) {
+            setCompanyLinkedInDialogContent(data.content)
+            setCompanyLinkedInDialogUrl(application.companyLinkedIn)
+            setShowCompanyLinkedInDialog(true)
+          } else {
+            throw new Error("Invalid response for company LinkedIn message.")
+          }
+        }
       } else {
         throw new Error(data.message || `Failed to generate ${type} message`)
       }
@@ -474,39 +560,36 @@ export default function JobApplicationTracker() {
           )
         }
 
-        if (data.content) {
-          // If it's a LinkedIn action, open the dialog
-          if (target.includes("linkedin")) {
-            const type = target.includes("founder") ? "founder" : "company"
-            const linkedInUrl = type === "founder" ? application.founderLinkedIn : application.companyLinkedIn
-            if (!linkedInUrl) {
-              toast({
-                title: "No LinkedIn URL",
-                description: `No LinkedIn URL provided for the ${type}.`,
-                variant: "destructive",
-              })
-              return // Exit if no URL
-            }
-            setLinkedInDialogContent(data.content)
-            setLinkedInDialogUrl(linkedInUrl)
-            setLinkedInDialogType(type)
-            setShowLinkedInDialog(true)
+        if (target === "founder-linkedin") {
+          if (data.details && Array.isArray(data.details)) {
+            setMultiFounderLinkedInDialogContent(data.details)
+            setShowMultiFounderLinkedInDialog(true)
           } else {
-            // For non-LinkedIn actions, copy directly
-            try {
-              await navigator.clipboard.writeText(data.content)
-              toast({
-                title: `${target} Follow-up copied`,
-                description: data.message || `${target} follow-up message copied to clipboard`,
-              })
-            } catch (clipboardError) {
-              console.error("Clipboard copy failed:", clipboardError)
-              toast({
-                title: "Clipboard Error",
-                description: "Failed to copy message to clipboard. Please copy manually.",
-                variant: "destructive",
-              })
-            }
+            throw new Error("Invalid response for founder LinkedIn follow-up messages.")
+          }
+        } else if (target === "company-linkedin") {
+          if (data.content) {
+            setCompanyLinkedInDialogContent(data.content)
+            setCompanyLinkedInDialogUrl(application.companyLinkedIn)
+            setShowCompanyLinkedInDialog(true)
+          } else {
+            throw new Error("Invalid response for company LinkedIn follow-up message.")
+          }
+        } else if (data.content) {
+          // For generic message or company email (if it returns content)
+          try {
+            await navigator.clipboard.writeText(data.content)
+            toast({
+              title: `${target} Follow-up copied`,
+              description: data.message || `${target} follow-up message copied to clipboard`,
+            })
+          } catch (clipboardError) {
+            console.error("Clipboard copy failed:", clipboardError)
+            toast({
+              title: "Clipboard Error",
+              description: "Failed to copy message to clipboard. Please copy manually.",
+              variant: "destructive",
+            })
           }
         } else {
           toast({
@@ -527,6 +610,39 @@ export default function JobApplicationTracker() {
     } finally {
       setLoading(loadingKey, false)
     }
+  }
+
+  // Callback for ManageFoundersDialog save
+  const handleSaveFounders = async (updatedFounders: { name: string; email: string; linkedIn: string }[]) => {
+    if (!currentApplicationForFounders) return
+
+    const newFounderNames = updatedFounders.map((f) => f.name)
+    const newFounderEmails = updatedFounders.map((f) => f.email)
+    const newFounderLinkedIns = updatedFounders.map((f) => f.linkedIn)
+
+    // Update locally first
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === currentApplicationForFounders.id
+          ? {
+              ...app,
+              founderName: newFounderNames,
+              founderEmail: newFounderEmails,
+              founderLinkedIn: newFounderLinkedIns,
+            }
+          : app,
+      ),
+    )
+
+    // Then send to backend
+    await performUpdate(currentApplicationForFounders.id!, "founderName", newFounderNames)
+    await performUpdate(currentApplicationForFounders.id!, "founderEmail", newFounderEmails)
+    await performUpdate(currentApplicationForFounders.id!, "founderLinkedIn", newFounderLinkedIns)
+
+    toast({
+      title: "Founders Updated",
+      description: "Founder details saved successfully.",
+    })
   }
 
   // Cleanup timeouts on unmount
@@ -632,10 +748,8 @@ export default function JobApplicationTracker() {
                     <TableHead className="min-w-[150px]">Company</TableHead>
                     <TableHead className="min-w-[150px]">Job Title</TableHead>
                     <TableHead className="min-w-[200px]">Job Description</TableHead>
-                    <TableHead className="min-w-[120px]">Founder</TableHead>
-                    <TableHead className="min-w-[180px]">Founder Email</TableHead>
+                    <TableHead className="min-w-[120px]">Founders</TableHead> {/* Changed to Founders */}
                     <TableHead className="min-w-[120px]">Date Applied</TableHead>
-                    <TableHead className="min-w-[150px]">Founder LinkedIn</TableHead>
                     <TableHead className="min-w-[150px]">Company LinkedIn</TableHead>
                     <TableHead className="min-w-[200px]">Actions</TableHead>
                     <TableHead className="min-w-[100px]">Follow Up</TableHead>
@@ -693,30 +807,21 @@ export default function JobApplicationTracker() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Input
-                            value={app.founderName}
-                            onChange={(e) => updateApplication(app.id!, "founderName", e.target.value)}
-                            onKeyPress={(e) => handleKeyPress(e, app.id!, "founderName", e.currentTarget.value)}
-                            onBlur={(e) => handleBlur(app.id!, "founderName", e.target.value)}
-                            placeholder="Founder name"
-                            className="border-0 p-1 h-8"
-                          />
-                          {getSaveIcon(app.id!, "founderName")}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Input
-                            type="email"
-                            value={app.founderEmail}
-                            onChange={(e) => updateApplication(app.id!, "founderEmail", e.target.value)}
-                            onKeyPress={(e) => handleKeyPress(e, app.id!, "founderEmail", e.currentTarget.value)}
-                            onBlur={(e) => handleBlur(app.id!, "founderEmail", e.target.value)}
-                            placeholder="founder@company.com"
-                            className="border-0 p-1 h-8"
-                          />
-                          {getSaveIcon(app.id!, "founderEmail")}
+                        <div className="flex flex-col items-start gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2 text-xs w-full flex items-center justify-center gap-1 bg-transparent"
+                            onClick={() => {
+                              setCurrentApplicationForFounders(app)
+                              setShowManageFoundersDialog(true)
+                            }}
+                          >
+                            <Users className="h-3 w-3 mr-1" />
+                            {app.founderName.length > 0
+                              ? `${app.founderName[0]}${app.founderName.length > 1 ? ` (+${app.founderName.length - 1})` : ""}`
+                              : "Add Founders"}
+                          </Button>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -744,20 +849,6 @@ export default function JobApplicationTracker() {
                         <div className="flex items-center gap-1">
                           <Input
                             type="url"
-                            value={app.founderLinkedIn}
-                            onChange={(e) => updateApplication(app.id!, "founderLinkedIn", e.target.value)}
-                            onKeyPress={(e) => handleKeyPress(e, app.id!, "founderLinkedIn", e.currentTarget.value)}
-                            onBlur={(e) => handleBlur(app.id!, "founderLinkedIn", e.target.value)}
-                            placeholder="LinkedIn URL"
-                            className="border-0 p-1 h-8 flex-1"
-                          />
-                          {getSaveIcon(app.id!, "founderLinkedIn")}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Input
-                            type="url"
                             value={app.companyLinkedIn}
                             onChange={(e) => updateApplication(app.id!, "companyLinkedIn", e.target.value)}
                             onKeyPress={(e) => handleKeyPress(e, app.id!, "companyLinkedIn", e.currentTarget.value)}
@@ -772,28 +863,32 @@ export default function JobApplicationTracker() {
                         <div className="grid grid-cols-2 gap-1">
                           {/* Founder Actions */}
                           <div className="space-y-1">
-                            <p className="text-xs font-medium text-gray-600 text-center">👤 Founder</p>
+                            <p className="text-xs font-medium text-gray-600 text-center">👤 Founders</p>
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => sendFounderEmail(app)}
-                              disabled={loadingStates[`founder-email-${app.id}-initial`]}
+                              disabled={
+                                loadingStates[`founder-email-${app.id}-initial`] || app.founderEmail.length === 0
+                              }
                               className="h-7 px-2 text-xs w-full"
-                              title="Send email to founder"
+                              title="Send email to all founders"
                             >
                               <Mail className="h-3 w-3 mr-1" />
-                              Email
+                              Email All
                             </Button>
                             <Button
                               size="sm"
                               variant="secondary"
                               onClick={() => handleLinkedInAction(app, "founder")}
-                              disabled={loadingStates[`founder-linkedin-${app.id}-initial`] || !app.founderLinkedIn}
+                              disabled={
+                                loadingStates[`founder-linkedin-${app.id}-initial`] || app.founderLinkedIn.length === 0
+                              }
                               className="h-7 px-2 text-xs w-full"
-                              title="Generate message & open LinkedIn"
+                              title="Generate messages & open LinkedIn"
                             >
                               <MessageSquare className="h-3 w-3 mr-1" />
-                              LinkedIn
+                              LinkedIn All
                             </Button>
                           </div>
 
@@ -806,7 +901,7 @@ export default function JobApplicationTracker() {
                               onClick={() => sendCompanyEmail(app)}
                               disabled={loadingStates[`company-email-${app.id}-initial`]}
                               className="h-7 px-2 text-xs w-full"
-                              title="Send email to company"
+                              title="Generate company email"
                             >
                               <Mail className="h-3 w-3 mr-1" />
                               Email
@@ -848,7 +943,9 @@ export default function JobApplicationTracker() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleFollowUpAction(app, "founder-email")}
-                              disabled={loadingStates[`followup-founder-email-${app.id}`]}
+                              disabled={
+                                loadingStates[`followup-founder-email-${app.id}`] || app.founderEmail.length === 0
+                              }
                             >
                               <Mail className="h-3 w-3 mr-2" />
                               Send Founder Email
@@ -862,7 +959,9 @@ export default function JobApplicationTracker() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleFollowUpAction(app, "founder-linkedin")}
-                              disabled={loadingStates[`followup-founder-linkedin-${app.id}`] || !app.founderLinkedIn}
+                              disabled={
+                                loadingStates[`followup-founder-linkedin-${app.id}`] || app.founderLinkedIn.length === 0
+                              }
                             >
                               <MessageSquare className="h-3 w-3 mr-2" />
                               Founder LinkedIn
@@ -940,14 +1039,35 @@ export default function JobApplicationTracker() {
       </Card>
       <Toaster />
 
-      {/* LinkedIn Message Dialog */}
-      <LinkedInMessageDialog
-        isOpen={showLinkedInDialog}
-        onClose={() => setShowLinkedInDialog(false)}
-        message={linkedInDialogContent}
-        linkedInUrl={linkedInDialogUrl}
-        type={linkedInDialogType}
+      {/* Company LinkedIn Message Dialog */}
+      <CompanyLinkedInMessageDialog
+        isOpen={showCompanyLinkedInDialog}
+        onClose={() => setShowCompanyLinkedInDialog(false)}
+        message={companyLinkedInDialogContent}
+        linkedInUrl={companyLinkedInDialogUrl}
+        type="company"
       />
+
+      {/* Multi-Founder LinkedIn Message Dialog */}
+      <MultiFounderLinkedInDialog
+        isOpen={showMultiFounderLinkedInDialog}
+        onClose={() => setShowMultiFounderLinkedInDialog(false)}
+        founderMessages={multiFounderLinkedInDialogContent}
+      />
+
+      {/* Manage Founders Dialog */}
+      {currentApplicationForFounders && (
+        <ManageFoundersDialog
+          isOpen={showManageFoundersDialog}
+          onClose={() => setShowManageFoundersDialog(false)}
+          initialFounders={currentApplicationForFounders.founderName.map((name, index) => ({
+            name: name,
+            email: currentApplicationForFounders.founderEmail[index] || "",
+            linkedIn: currentApplicationForFounders.founderLinkedIn[index] || "",
+          }))}
+          onSave={handleSaveFounders}
+        />
+      )}
     </div>
   )
 }
